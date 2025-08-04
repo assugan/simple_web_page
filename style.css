@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@600&display=swap');
+
+body {
+	font-family: 'Comfortaa', sans-serif ;
+	background-image: url(images/Brick-Wallpaper-HD-1366x768-5-min.jpg);
+	background-size: 100%;
+	background-repeat: no-repeat;
+	padding: 50px 0;
+}
+
+h3 {
+	font-size: 25px;
+	font-weight: bold;
+	margin-bottom: 10px;
+}
+
+.container{
+	width: 1000px;
+	min-height: 700px;
+	border: 3px solid black;
+	margin: 0 auto;
+	background: #606060;
+}
+
+.header {
+	display: flex;
+	height: 300px;
+}
+
+.title-block {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	width: 65%;
+	height: 95%;
+	border: 3px solid black;
+	margin: 3px;
+	font-size: 50px;
+	background: url(images/ibkdvtupd5si9nzbummhyhcodtm.jpeg);
+	background-repeat: no-repeat;
+	background-size: 100%;
+}
+
+.userpic {
+	display: flex;
+	height: 95%;
+	width: 35%;
+	border: 3px solid black;
+	margin: 3px;
+	background:url(images/SP_copy_1.png);
+	background-size: 100%;
+	background-repeat: no-repeat;
+}
+
+.nav ul {
+	display: flex;
+	background: rgb(133, 126, 126);
+	margin: 3px;
+}
+
+.nav li a {
+	display: flex;
+	padding: 20px;
+	text-decoration: none;
+	color: black;
+	font-weight: bold;
+	border-right: 1px solid black;
+	transition: background .5s ease;
+}
+
+.nav li a:hover {
+	background: rgb(78, 75, 75);
+}
+
+.content-wrapper {
+	display: flex;
+}
+
+.content-1 {
+	width: 65%;
+	margin: 30px;
+}
+
+.content-1 p {
+	color: black;
+	line-height: 25px;
+}
+
+.content-1 a {
+	color: black;
+}
+
+.sidebar {
+	width: 35%;
+	padding: 20px;
+	margin: 3px;
+}
+
+.skills li {
+	text-decoration: none;
+	color: black;
+	padding: 10px 0;
+	transition: transform .3s ease;
+}
+
+.skills li:hover {
+	transform: translateX(10px);
+	
+}
+
+.skills li a {
+	text-decoration: none;
+	color: black;
+
+}
