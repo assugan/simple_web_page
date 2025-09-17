@@ -166,21 +166,53 @@ pipeline {
     stage('Deploy (Ansible, main only)') {
       when { allOf { expression { env.BRANCH_NAME == 'main' }; not { changeRequest() } } }
       steps {
-        // забираем ansible из репо инфраструктуры
         dir('infra-src') {
           git url: "${INFRA_REPO_URL}", branch: "${INFRA_BRANCH}"
         }
 
-        // inventory рядом с playbook
-        writeFile file: 'infra-src/ansible/inventory.ini', text: "[web]\n${APP_DOMAIN}\n"
+        // Гарантируем наличие каталога и пишем inventory
+        sh '''
+          set -e
+          echo "== workspace =="
+          pwd
+          echo "== tree infra-src =="
+          ls -la infra-src || true
+          ls -la infra-src/ansible || true
+          mkdir -p infra-src/ansible
 
-        withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-private',
-          keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
+          cat > infra-src/ansible/inventory.ini <<'EOF'
+          [web]
+          assugan.click
+          EOF
+          echo "== inventory.ini =="
+          cat infra-src/ansible/inventory.ini
+        '''
 
+        withCredentials([
+          sshUserPrivateKey(
+            credentialsId: 'ec2-ssh-private',   // ДОЛЖЕН существовать в Jenkins
+            keyFileVariable: 'SSH_KEY_FILE',
+            usernameVariable: 'SSH_USER'
+          )
+        ]) {
           dir('infra-src/ansible') {
             sh '''
-              set -e
+              set -euxo pipefail
+
+              # Диагностика окружения
+              echo "== whoami =="; whoami || true
+              echo "== PATH =="; echo "$PATH"
+              which ansible || true
+              which ansible-playbook || true
+              ansible --version
+
+              # Проверим, что креды подтянулись
+              echo "SSH_USER=${SSH_USER}"
+              test -n "$SSH_USER"             # если пусто — нет username в кредах
+              test -s "$SSH_KEY_FILE"         # если нет файла — неверный credsId/тип
+
               export ANSIBLE_HOST_KEY_CHECKING=False
+
               ansible-playbook -i inventory.ini site.yml \
                 -u "$SSH_USER" --private-key "$SSH_KEY_FILE" \
                 --extra-vars "app_domain=''' + "${APP_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest"
