@@ -2,20 +2,11 @@ pipeline {
   agent any
 
   environment {
-    // Чтобы Jenkins видел docker/ansible/… на macOS (Homebrew + Docker Desktop)
     PATH = "/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:${PATH}"
-
-    // Образ в Docker Hub
-    DOCKER_IMAGE = "assugan/web-app"
-
-    // Домен твоего EC2 (Terraform уже настроил)
+    DOCKER_IMAGE = "docker.io/assugan/web-app"
     APP_DOMAIN   = "assugan.click"
-
-    // Откуда берём Ansible роли (как мы их готовили)
     INFRA_REPO_URL = "https://github.com/assugan/infrastructure.git"
     INFRA_BRANCH   = "draft-infra"
-
-    // Уведомления
     TELEGRAM_BOT_TOKEN = credentials('telegram-bot-token')
     TELEGRAM_CHAT_ID   = credentials('telegram-chat-id')
   }
@@ -27,8 +18,40 @@ pipeline {
       steps {
         checkout scm
         script {
-          env.SHORT_SHA   = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+          env.SHORT_SHA   = sh(script: "git rev-parse --short=12 HEAD", returnStdout: true).trim()
           env.BRANCH_SAFE = (env.CHANGE_BRANCH ?: env.BRANCH_NAME).replaceAll('/','-').toLowerCase()
+        }
+      }
+    }
+
+    stage('Detect Docker') {
+      steps {
+        sh '''
+          set -e
+          echo "== whoami =="; whoami || true
+          echo "== PATH =="; echo "$PATH"
+
+          CANDIDATES="
+            /opt/homebrew/bin/docker
+            /usr/local/bin/docker
+            /Applications/Docker.app/Contents/Resources/bin/docker
+          "
+          for p in $CANDIDATES; do
+            if [ -x "$p" ]; then
+              echo "Found docker at: $p"
+              echo "DOCKER_BIN=$p" > .docker_path
+              break
+            fi
+          done
+          if [ ! -f .docker_path ]; then
+            echo "❌ Docker binary not found"
+            exit 1
+          fi
+          . .docker_path
+          "$DOCKER_BIN" version
+        '''
+        script {
+          env.DOCKER_BIN = sh(script: 'source .docker_path && echo "$DOCKER_BIN"', returnStdout: true).trim()
         }
       }
     }
@@ -43,7 +66,7 @@ pipeline {
             echo "⚠️ hadolint not installed — пропускаю"
           fi
 
-          echo "== YAML lint (опционально) =="
+          echo "== YAML lint (optional) =="
           if command -v yamllint >/dev/null 2>&1; then
             yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .
           else
@@ -57,13 +80,12 @@ pipeline {
       steps {
         sh '''
           set -e
-          docker build -t ${DOCKER_IMAGE}:${SHORT_SHA} .
-          # Дополнительный тег: для main — latest, для остальных — имя ветки
+          "${DOCKER_BIN}" build -t ${DOCKER_IMAGE}:${SHORT_SHA} .
           if [ "${BRANCH_NAME}" = "main" ]; then
-            docker tag ${DOCKER_IMAGE}:${SHORT_SHA} ${DOCKER_IMAGE}:latest
+            "${DOCKER_BIN}" tag ${DOCKER_IMAGE}:${SHORT_SHA} ${DOCKER_IMAGE}:latest
           else
             SAFE_TAG=$(echo "${BRANCH_SAFE}" | sed 's/[^a-zA-Z0-9_.-]/-/g')
-            docker tag ${DOCKER_IMAGE}:${SHORT_SHA} ${DOCKER_IMAGE}:${SAFE_TAG}
+            "${DOCKER_BIN}" tag ${DOCKER_IMAGE}:${SHORT_SHA} ${DOCKER_IMAGE}:${SAFE_TAG}
           fi
         '''
       }
@@ -74,41 +96,31 @@ pipeline {
         sh '''
           set -e
           echo "== Run container for test on 8088 =="
-          docker run -d --rm -p 8088:80 --name webtest ${DOCKER_IMAGE}:${SHORT_SHA}
-          # подождём старт nginx в контейнере
+          "${DOCKER_BIN}" run -d --rm -p 8088:80 --name webtest ${DOCKER_IMAGE}:${SHORT_SHA}
           for i in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8088 || true)
             [ "$code" = "200" ] && break
             sleep 1
           done
-          docker stop webtest || true
-          if [ "$code" != "200" ]; then
-            echo "❌ Test failed: HTTP $code"
-            exit 1
-          fi
+          "${DOCKER_BIN}" stop webtest || true
+          [ "$code" = "200" ] || { echo "❌ Test failed: HTTP $code"; exit 1; }
           echo "✅ Test passed (HTTP 200)"
         '''
       }
     }
 
     stage('Docker Buildx & Push (main only)') {
-      when {
-        allOf {
-          expression { env.BRANCH_NAME == 'main' } // только ветка main
-          not { changeRequest() }                  // и это не PR
-        }
-      }
+      when { allOf { expression { env.BRANCH_NAME == 'main' }; not { changeRequest() } } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
           sh '''
             set -euo pipefail
-            echo "$DH_PASS" | docker login -u "$DH_USER" --password-stdin
+            echo "$DH_PASS" | "${DOCKER_BIN}" login -u "$DH_USER" --password-stdin
 
-            # buildx для multi-arch (Mac arm64 -> amd64 в облаке)
-            docker buildx create --name web_builder --use || true
-            docker buildx inspect --bootstrap
+            "${DOCKER_BIN}" buildx create --name web_builder --use || true
+            "${DOCKER_BIN}" buildx inspect --bootstrap
 
-            docker buildx build \
+            "${DOCKER_BIN}" buildx build \
               --platform linux/amd64,linux/arm64 \
               -t "${DOCKER_IMAGE}:${BRANCH_SAFE}-${SHORT_SHA}" \
               -t "${DOCKER_IMAGE}:${BUILD_NUMBER}" \
@@ -117,59 +129,41 @@ pipeline {
               --push \
               .
 
-            docker logout || true
+            "${DOCKER_BIN}" logout || true
           '''
         }
       }
     }
 
     stage('Push (non-main branches)') {
-      when {
-        allOf {
-          expression { env.BRANCH_NAME != 'main' }
-          not { changeRequest() }
-        }
-      }
+      when { allOf { expression { env.BRANCH_NAME != 'main' }; not { changeRequest() } } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
           sh '''
             set -e
-            echo "$DH_PASS" | docker login -u "$DH_USER" --password-stdin
-
+            echo "$DH_PASS" | "${DOCKER_BIN}" login -u "$DH_USER" --password-stdin
             SAFE_TAG=$(echo "${BRANCH_SAFE}" | sed 's/[^a-zA-Z0-9_.-]/-/g')
-            docker push ${DOCKER_IMAGE}:${SHORT_SHA}
-            docker push ${DOCKER_IMAGE}:${SAFE_TAG}
-
-            docker logout || true
+            "${DOCKER_BIN}" push ${DOCKER_IMAGE}:${SHORT_SHA}
+            "${DOCKER_BIN}" push ${DOCKER_IMAGE}:${SAFE_TAG}
+            "${DOCKER_BIN}" logout || true
           '''
         }
       }
     }
 
     stage('Deploy (Ansible, main only)') {
-      when {
-        allOf {
-          expression { env.BRANCH_NAME == 'main' }
-          not { changeRequest() }
-        }
-      }
+      when { allOf { expression { env.BRANCH_NAME == 'main' }; not { changeRequest() } } }
       steps {
-        // Клонируем infra с ролями (docker, app_container, nginx_lb)
         dir('infra-src') {
           git url: "${INFRA_REPO_URL}", branch: "${INFRA_BRANCH}"
         }
-
-        // inventory через DNS
         writeFile file: 'inventory.ini', text: "[web]\n${APP_DOMAIN}\n"
-
         withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-private',
           keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
           dir('infra-src/infrastructure/ansible') {
             sh '''
               set -e
               export ANSIBLE_HOST_KEY_CHECKING=False
-
-              # Ставим именно latest, который запушили buildx-ом
               ansible-playbook -i ../../inventory.ini site.yml \
                 -u "$SSH_USER" --private-key "$SSH_KEY_FILE" \
                 --extra-vars "app_domain=''' + "${APP_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest"
