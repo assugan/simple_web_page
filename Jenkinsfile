@@ -2,8 +2,12 @@ pipeline {
   agent any
 
   environment {
-    DOCKERHUB_REPO = 'docker.io/<your_dockerhub_user>/simple-web-page'
+    // твой репозиторий в Docker Hub
+    DOCKERHUB_REPO = 'docker.io/assugan/web-app'
+
     AWS_DOMAIN     = 'assugan.click'
+
+    // ansible берём из отдельного репо инфраструктуры
     INFRA_REPO_URL = 'https://github.com/assugan/infrastructure.git'
     INFRA_BRANCH   = 'draft-infra'
 
@@ -45,6 +49,7 @@ pipeline {
           if (env.BRANCH_NAME == 'main') {
             env.ADDITIONAL_TAG = 'latest'
           } else {
+            // безопасный тег из имени ветки
             env.ADDITIONAL_TAG = env.BRANCH_NAME.replaceAll(/[^a-zA-Z0-9_.-]/, '-')
           }
         }
@@ -61,10 +66,9 @@ pipeline {
       steps {
         sh '''
           echo "== Run container for test =="
-          docker run -d --rm -p 8080:80 --name webtest ${DOCKERHUB_REPO}:${IMAGE_TAG}
+          docker run -d --rm -p 8088:80 --name webtest ${DOCKERHUB_REPO}:${IMAGE_TAG}
           sleep 5
-          curl -s -o /tmp/out.html -w "%{http_code}" http://localhost:8080 | tee result.txt
-          code=$(cat result.txt)
+          code=$(curl -s -o /tmp/out.html -w "%{http_code}" http://localhost:8080 || echo 000)
           docker stop webtest || true
 
           if [ "$code" -ne 200 ]; then
@@ -106,6 +110,8 @@ pipeline {
           keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
 
           script {
+            // что ставим на сервер:
+            // main -> latest, иначе — commit SHA (идемпотентно)
             env.DEPLOY_TAG = (env.BRANCH_NAME == 'main') ? (env.ADDITIONAL_TAG ?: 'latest') : env.IMAGE_TAG
           }
 
