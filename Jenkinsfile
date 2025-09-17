@@ -1,8 +1,6 @@
 pipeline {
   agent any
 
-  tools { /* maven не нужен */ }
-
   environment {
     // Чтобы Jenkins видел docker/ansible/… на macOS (Homebrew + Docker Desktop)
     PATH = "/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:${PATH}"
