@@ -2,11 +2,20 @@ pipeline {
   agent any
 
   environment {
+    // чтобы локальный Jenkins (macOS) видел docker/ansible
     PATH = "/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:${PATH}"
+
+    // Docker Hub образ
     DOCKER_IMAGE = "docker.io/assugan/web-app"
+
+    // домен твоего EC2
     APP_DOMAIN   = "assugan.click"
+
+    // ansible из отдельного репо инфраструктуры
     INFRA_REPO_URL = "https://github.com/assugan/infrastructure.git"
     INFRA_BRANCH   = "draft-infra"
+
+    // уведомления
     TELEGRAM_BOT_TOKEN = credentials('telegram-bot-token')
     TELEGRAM_CHAT_ID   = credentials('telegram-chat-id')
   }
@@ -63,14 +72,14 @@ pipeline {
           if command -v hadolint >/dev/null 2>&1; then
             hadolint Dockerfile || exit 1
           else
-            echo "⚠️ hadolint not installed — пропускаю"
+            echo "⚠️ hadolint not installed — skip"
           fi
 
           echo "== YAML lint (optional) =="
           if command -v yamllint >/dev/null 2>&1; then
             yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .
           else
-            echo "⚠️ yamllint not installed — пропускаю"
+            echo "⚠️ yamllint not installed — skip"
           fi
         '''
       }
@@ -109,6 +118,7 @@ pipeline {
       }
     }
 
+    // main: multi-arch push через buildx
     stage('Docker Buildx & Push (main only)') {
       when { allOf { expression { env.BRANCH_NAME == 'main' }; not { changeRequest() } } }
       steps {
@@ -135,6 +145,7 @@ pipeline {
       }
     }
 
+    // feature-ветки: обычный push тегов SHA и branch
     stage('Push (non-main branches)') {
       when { allOf { expression { env.BRANCH_NAME != 'main' }; not { changeRequest() } } }
       steps {
@@ -151,20 +162,26 @@ pipeline {
       }
     }
 
+    // деплой только для main
     stage('Deploy (Ansible, main only)') {
       when { allOf { expression { env.BRANCH_NAME == 'main' }; not { changeRequest() } } }
       steps {
+        // забираем ansible из репо инфраструктуры
         dir('infra-src') {
           git url: "${INFRA_REPO_URL}", branch: "${INFRA_BRANCH}"
         }
-        writeFile file: 'inventory.ini', text: "[web]\n${APP_DOMAIN}\n"
+
+        // inventory рядом с playbook
+        writeFile file: 'infra-src/ansible/inventory.ini', text: "[web]\n${APP_DOMAIN}\n"
+
         withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-private',
           keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
-          dir('infra-src/infrastructure/ansible') {
+
+          dir('infra-src/ansible') {
             sh '''
               set -e
               export ANSIBLE_HOST_KEY_CHECKING=False
-              ansible-playbook -i ../../inventory.ini site.yml \
+              ansible-playbook -i inventory.ini site.yml \
                 -u "$SSH_USER" --private-key "$SSH_KEY_FILE" \
                 --extra-vars "app_domain=''' + "${APP_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest"
             '''
