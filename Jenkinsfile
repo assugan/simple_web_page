@@ -8,7 +8,7 @@ pipeline {
     PATH = "/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:${PATH}"
 
     // Образ в Docker Hub
-    DOCKER_IMAGE = "docker.io/assugan/web-app"
+    DOCKER_IMAGE = "assugan/web-app"
 
     // Домен твоего EC2 (Terraform уже настроил)
     APP_DOMAIN   = "assugan.click"
