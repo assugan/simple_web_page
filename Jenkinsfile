@@ -13,7 +13,7 @@ pipeline {
 
     // ansible из отдельного репо инфраструктуры
     INFRA_REPO_URL = "https://github.com/assugan/infrastructure.git"
-    INFRA_BRANCH   = "draft-infra"
+    INFRA_BRANCH   = "main"
 
     // уведомления
     TELEGRAM_BOT_TOKEN = credentials('telegram-bot-token')
