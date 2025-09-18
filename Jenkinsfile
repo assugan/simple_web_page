@@ -175,7 +175,7 @@ pipeline {
           git url: "${INFRA_REPO_URL}", branch: "${INFRA_BRANCH}"
         }
 
-        // 2) пишем inventory без heredoc
+        // 2) пишем inventory без heredoc (не зависает)
         sh '''
           set -euo pipefail
           echo "== workspace =="; pwd
@@ -185,7 +185,7 @@ pipeline {
           echo "== inventory.ini =="; cat infra-src/ansible/inventory.ini
         '''
 
-        // 3) SSH credentials (ID ДОЛЖЕН совпадать со скрином: ec2-ssh-key)
+        // 3) SSH-креды и запуск ansible
         withCredentials([sshUserPrivateKey(
           credentialsId: 'ec2-ssh-key',
           keyFileVariable: 'SSH_KEY_FILE',
@@ -195,10 +195,15 @@ pipeline {
             sh '''
               set -euxo pipefail
 
-              # Диагностика окружения
-              echo "== Ansible =="; which ansible || true; ansible --version
-              echo "== SSH creds check =="; echo "SSH_USER=${SSH_USER}"; test -n "$SSH_USER"
-              test -s "$SSH_KEY_FILE"; ls -l "$SSH_KEY_FILE" || true
+              echo "== Ansible =="
+              which ansible || true
+              ansible --version
+
+              echo "== SSH creds check =="
+              echo "SSH_USER=${SSH_USER}"
+              test -n "$SSH_USER"
+              test -s "$SSH_KEY_FILE"
+              ls -l "$SSH_KEY_FILE" || true
 
               export ANSIBLE_HOST_KEY_CHECKING=False
 
