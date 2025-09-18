@@ -175,39 +175,30 @@ pipeline {
           git url: "${INFRA_REPO_URL}", branch: "${INFRA_BRANCH}"
         }
 
-        // 2) создаём inventory без heredoc
+        // 2) пишем inventory без heredoc
         sh '''
           set -euo pipefail
           echo "== workspace =="; pwd
           echo "== tree infra-src =="; ls -la infra-src || true; ls -la infra-src/ansible || true
           mkdir -p infra-src/ansible
-
-          # пишем inventory.ini одним printf (никаких зависаний)
           printf "[web]\\n%s\\n" "${AWS_DOMAIN:-assugan.click}" > infra-src/ansible/inventory.ini
           echo "== inventory.ini =="; cat infra-src/ansible/inventory.ini
         '''
 
-        // 3) SSH креды: ec2-ssh-key (username=ubuntu, private key)
-        withCredentials([
-          sshUserPrivateKey(
-            credentialsId: 'ec2-ssh-key',
-            keyFileVariable: 'SSH_KEY_FILE',
-            usernameVariable: 'SSH_USER'
-          )
-        ]) {
+        // 3) SSH credentials (ID ДОЛЖЕН совпадать со скрином: ec2-ssh-key)
+        withCredentials([sshUserPrivateKey(
+          credentialsId: 'ec2-ssh-key',
+          keyFileVariable: 'SSH_KEY_FILE',
+          usernameVariable: 'SSH_USER'
+        )]) {
           dir('infra-src/ansible') {
             sh '''
               set -euxo pipefail
 
-              echo "== Ansible =="
-              which ansible || true
-              ansible --version
-
-              echo "== SSH creds check =="
-              echo "SSH_USER=${SSH_USER}"
-              test -n "$SSH_USER"
-              test -s "$SSH_KEY_FILE"
-              ls -l "$SSH_KEY_FILE" || true
+              # Диагностика окружения
+              echo "== Ansible =="; which ansible || true; ansible --version
+              echo "== SSH creds check =="; echo "SSH_USER=${SSH_USER}"; test -n "$SSH_USER"
+              test -s "$SSH_KEY_FILE"; ls -l "$SSH_KEY_FILE" || true
 
               export ANSIBLE_HOST_KEY_CHECKING=False
 
