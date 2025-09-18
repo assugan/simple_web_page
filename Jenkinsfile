@@ -215,7 +215,7 @@ pipeline {
               export ANSIBLE_HOST_KEY_CHECKING=False
 
               echo "== Ping host =="
-              timeout 30s ansible -i inventory.ini web -u "$SSH_USER" --private-key "$SSH_KEY_FILE" -m ping -vv
+              ansible -i inventory.ini web -u "$SSH_USER" --private-key "$SSH_KEY_FILE" -m ping -vv
 
               echo "== Playbook =="
               ansible-playbook -i inventory.ini site.yml \
