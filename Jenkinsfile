@@ -190,7 +190,7 @@ pipeline {
 
         withCredentials([
           sshUserPrivateKey(
-            credentialsId: 'ec2-ssh-private',   // ДОЛЖЕН существовать в Jenkins
+            credentialsId: 'ec2-ssh-key',
             keyFileVariable: 'SSH_KEY_FILE',
             usernameVariable: 'SSH_USER'
           )
