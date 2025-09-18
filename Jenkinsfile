@@ -166,28 +166,24 @@ pipeline {
     stage('Deploy (Ansible, main only)') {
       when { allOf { expression { env.BRANCH_NAME == 'main' }; not { changeRequest() } } }
       steps {
+        // 1) тянем актуальную инфру
         dir('infra-src') {
           git url: "${INFRA_REPO_URL}", branch: "${INFRA_BRANCH}"
         }
 
-        // Гарантируем наличие каталога и пишем inventory
+        // 2) создаём inventory без heredoc
         sh '''
-          set -e
-          echo "== workspace =="
-          pwd
-          echo "== tree infra-src =="
-          ls -la infra-src || true
-          ls -la infra-src/ansible || true
+          set -euo pipefail
+          echo "== workspace =="; pwd
+          echo "== tree infra-src =="; ls -la infra-src || true; ls -la infra-src/ansible || true
           mkdir -p infra-src/ansible
 
-          cat > infra-src/ansible/inventory.ini <<'EOF'
-          [web]
-          assugan.click
-          EOF
-          echo "== inventory.ini =="
-          cat infra-src/ansible/inventory.ini
+          # пишем inventory.ini одним printf (никаких зависаний)
+          printf "[web]\\n%s\\n" "${AWS_DOMAIN:-assugan.click}" > infra-src/ansible/inventory.ini
+          echo "== inventory.ini =="; cat infra-src/ansible/inventory.ini
         '''
 
+        // 3) SSH креды: ec2-ssh-key (username=ubuntu, private key)
         withCredentials([
           sshUserPrivateKey(
             credentialsId: 'ec2-ssh-key',
@@ -199,23 +195,25 @@ pipeline {
             sh '''
               set -euxo pipefail
 
-              # Диагностика окружения
-              echo "== whoami =="; whoami || true
-              echo "== PATH =="; echo "$PATH"
+              echo "== Ansible =="
               which ansible || true
-              which ansible-playbook || true
               ansible --version
 
-              # Проверим, что креды подтянулись
+              echo "== SSH creds check =="
               echo "SSH_USER=${SSH_USER}"
-              test -n "$SSH_USER"             # если пусто — нет username в кредах
-              test -s "$SSH_KEY_FILE"         # если нет файла — неверный credsId/тип
+              test -n "$SSH_USER"
+              test -s "$SSH_KEY_FILE"
+              ls -l "$SSH_KEY_FILE" || true
 
               export ANSIBLE_HOST_KEY_CHECKING=False
 
+              echo "== Ping host =="
+              timeout 30s ansible -i inventory.ini web -u "$SSH_USER" --private-key "$SSH_KEY_FILE" -m ping -vv
+
+              echo "== Deploy playbook =="
               ansible-playbook -i inventory.ini site.yml \
                 -u "$SSH_USER" --private-key "$SSH_KEY_FILE" \
-                --extra-vars "app_domain=''' + "${APP_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest"
+                --extra-vars "app_domain=''' + "${AWS_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest" -vv
             '''
           }
         }
