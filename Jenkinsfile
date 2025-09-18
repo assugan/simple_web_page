@@ -172,27 +172,28 @@ pipeline {
       steps {
         echo "== MARK:DEPLOY:START =="
 
-        // 1) тянем актуальную инфру
+        // 1) тянем актуальную инфру (репо с ansible)
         dir('infra-src') {
           git url: "${INFRA_REPO_URL}", branch: "${INFRA_BRANCH}"
         }
 
-        // 2) пишем inventory без heredoc (не зависает)
+        // 2) inventory рядом с playbook
         sh '''
           set -euo pipefail
           echo "== MARK:DEPLOY:PREP =="
           ls -la infra-src || true
           ls -la infra-src/ansible || true
           mkdir -p infra-src/ansible
-          # используем APP_DOMAIN (он у тебя в environment)
           printf "[web]\\n%s\\n" "${APP_DOMAIN:-assugan.click}" > infra-src/ansible/inventory.ini
           echo "== inventory.ini =="; cat infra-src/ansible/inventory.ini
           echo "== MARK:AFTER-CAT =="
         '''
 
-        // 3) SSH-креды и запуск ansible
+        echo "== MARK:BEFORE-CREDS =="
+
+        // 3) SSH-креды и Ansible — ОБЯЗАТЕЛЬНО внутри steps{}
         withCredentials([sshUserPrivateKey(
-          credentialsId: 'ec2-ssh-key',
+          credentialsId: 'ec2-ssh-key',        // Jenkins Credentials: SSH Username with private key (username=ubuntu)
           keyFileVariable: 'SSH_KEY_FILE',
           usernameVariable: 'SSH_USER'
         )]) {
@@ -205,7 +206,7 @@ pipeline {
               which ansible || true
               ansible --version
 
-              echo "== SSH creds check =="
+              echo "== SSH creds =="
               echo "SSH_USER=${SSH_USER}"
               test -n "$SSH_USER"
               test -s "$SSH_KEY_FILE"
@@ -217,7 +218,6 @@ pipeline {
               timeout 30s ansible -i inventory.ini web -u "$SSH_USER" --private-key "$SSH_KEY_FILE" -m ping -vv
 
               echo "== Playbook =="
-              # ВАЖНО: тут тоже APP_DOMAIN
               ansible-playbook -i inventory.ini site.yml \
                 -u "$SSH_USER" --private-key "$SSH_KEY_FILE" \
                 --extra-vars "app_domain=''' + "${APP_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest" -vv
@@ -226,6 +226,8 @@ pipeline {
             '''
           }
         }
+
+        echo "== MARK:DEPLOY:END =="
       }
     }
   }
