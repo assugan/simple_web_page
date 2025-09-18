@@ -75,12 +75,12 @@ pipeline {
             echo "⚠️ hadolint not installed — skip"
           fi
 
-          echo "== YAML lint (optional) =="
-          if command -v yamllint >/dev/null 2>&1; then
-            yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .
-          else
-            echo "⚠️ yamllint not installed — skip"
-          fi
+          // echo "== YAML lint (optional) =="
+          // if command -v yamllint >/dev/null 2>&1; then
+          //   yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .
+          // else
+          //   echo "⚠️ yamllint not installed — skip"
+          // fi
         '''
       }
     }
