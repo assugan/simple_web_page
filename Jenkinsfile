@@ -170,6 +170,8 @@ pipeline {
     stage('Deploy (Ansible, main only)') {
       when { allOf { expression { env.BRANCH_NAME == 'main' }; not { changeRequest() } } }
       steps {
+        echo "== MARK:DEPLOY:START =="
+
         // 1) тянем актуальную инфру
         dir('infra-src') {
           git url: "${INFRA_REPO_URL}", branch: "${INFRA_BRANCH}"
@@ -178,11 +180,14 @@ pipeline {
         // 2) пишем inventory без heredoc (не зависает)
         sh '''
           set -euo pipefail
-          echo "== workspace =="; pwd
-          echo "== tree infra-src =="; ls -la infra-src || true; ls -la infra-src/ansible || true
+          echo "== MARK:DEPLOY:PREP =="
+          ls -la infra-src || true
+          ls -la infra-src/ansible || true
           mkdir -p infra-src/ansible
-          printf "[web]\\n%s\\n" "${AWS_DOMAIN:-assugan.click}" > infra-src/ansible/inventory.ini
+          # используем APP_DOMAIN (он у тебя в environment)
+          printf "[web]\\n%s\\n" "${APP_DOMAIN:-assugan.click}" > infra-src/ansible/inventory.ini
           echo "== inventory.ini =="; cat infra-src/ansible/inventory.ini
+          echo "== MARK:AFTER-CAT =="
         '''
 
         // 3) SSH-креды и запуск ansible
@@ -194,6 +199,7 @@ pipeline {
           dir('infra-src/ansible') {
             sh '''
               set -euxo pipefail
+              echo "== MARK:DEPLOY:RUN =="
 
               echo "== Ansible =="
               which ansible || true
@@ -210,10 +216,13 @@ pipeline {
               echo "== Ping host =="
               timeout 30s ansible -i inventory.ini web -u "$SSH_USER" --private-key "$SSH_KEY_FILE" -m ping -vv
 
-              echo "== Deploy playbook =="
+              echo "== Playbook =="
+              # ВАЖНО: тут тоже APP_DOMAIN
               ansible-playbook -i inventory.ini site.yml \
                 -u "$SSH_USER" --private-key "$SSH_KEY_FILE" \
-                --extra-vars "app_domain=''' + "${AWS_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest" -vv
+                --extra-vars "app_domain=''' + "${APP_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest" -vv
+
+              echo "== MARK:DEPLOY:DONE =="
             '''
           }
         }
