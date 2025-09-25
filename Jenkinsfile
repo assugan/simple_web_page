@@ -102,54 +102,48 @@ pipeline {
 
     stage('Test (container smoke)') {
       steps {
-        sh """
+        sh '''
           set -euo pipefail
-          echo '== Run container smoke test =='
+          echo "== Run container smoke test =="
 
-          NAME="webtest-${env.BUILD_TAG}"
+          # гарантируем путь к docker из ENV или дефолт
+          DOCKER_BIN="${DOCKER_BIN:-/usr/local/bin/docker}"
+
+          NAME="webtest-${BUILD_TAG}"
           IMAGE="${DOCKER_IMAGE}:${SHORT_SHA}"
 
-          # На всякий случай подчистим только наши прошлые webtest-контейнеры
-          ${DOCKER_BIN} ps -aq -f "label=ci=webtest" | xargs -r ${DOCKER_BIN} rm -f || true
+          # уберём только наши тестовые контейнеры
+          $DOCKER_BIN ps -aq -f "label=ci=webtest" | xargs -r $DOCKER_BIN rm -f || true
 
-          ${DOCKER_BIN} run -d --rm \
+          $DOCKER_BIN run -d --rm \
             --label ci=webtest \
             --name "$NAME" \
             -p 0:80 \
             "$IMAGE"
 
-          # Узнаём выделенный порт надёжным способом
+          # дождёмся, когда docker выдаст порт и считаем его надёжно
           PORT=""
-          for i in \$(seq 1 10); do
-            # docker port возвращает вроде "0.0.0.0:32787" или "::1:32787"
-            LINE=\$(${DOCKER_BIN} port "$NAME" 80/tcp || true)
-            PORT=\$(printf '%s' "\$LINE" | awk -F: 'NF{print \$NF}')
-            [ -n "\$PORT" ] && break
+          for i in $(seq 1 10); do
+            LINE=$($DOCKER_BIN port "$NAME" 80/tcp || true)
+            PORT=$(printf "%s" "$LINE" | awk -F: "NF{print \$NF}")
+            [ -n "$PORT" ] && break
             sleep 1
           done
+          [ -n "$PORT" ] || { echo "❌ Can't determine mapped port for $NAME"; $DOCKER_BIN rm -f "$NAME" || true; exit 1; }
 
-          if [ -z "\$PORT" ]; then
-            echo "❌ Can't determine mapped port for \$NAME"
-            ${DOCKER_BIN} rm -f "$NAME" || true
-            exit 1
-          fi
+          echo "Container: $NAME -> http://localhost:$PORT"
+          trap '$DOCKER_BIN rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 
-          echo "Container: \$NAME  ->  http://localhost:\$PORT"
-
-          # Трап на уборку даже при ошибке
-          trap '${DOCKER_BIN} rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
-
-          # Ждём HTTP 200 до 20 сек
           code=""
-          for i in \$(seq 1 20); do
-            code=\$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:\$PORT" || true)
-            [ "\$code" = "200" ] && break
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PORT" || true)
+            [ "$code" = "200" ] && break
             sleep 1
           done
 
-          [ "\$code" = "200" ] || { echo "❌ Test failed: HTTP \$code (port \$PORT)"; exit 1; }
-          echo "✅ Test passed (HTTP 200) on port \$PORT"
-        """
+          [ "$code" = "200" ] || { echo "❌ Test failed: HTTP $code (port $PORT)"; exit 1; }
+          echo "✅ Test passed (HTTP 200) on port $PORT"
+        '''
       }
     }
 
