@@ -119,8 +119,8 @@ pipeline {
             "$IMAGE"
 
           # Узнаём, какой порт выдал Docker
-          PORT=$(${DOCKER_BIN} inspect -f '{{ (index (index .NetworkSettings.Ports "80/tcp") 0).HostPort }}' "$NAME")
-          echo "Container: $NAME  ->  http://localhost:${PORT}"
+          PORT=$(docker inspect -f '{{ (index (index .NetworkSettings.Ports "80/tcp") 0).HostPort }}' "$WT_NAME")
+          echo "Container: $WT_NAME  ->  http://localhost:${PORT}"
 
           # Трап на уборку даже при ошибке
           trap '${DOCKER_BIN} rm -f \"$NAME\" >/dev/null 2>&1 || true' EXIT
