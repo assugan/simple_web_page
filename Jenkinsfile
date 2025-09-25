@@ -102,27 +102,39 @@ pipeline {
 
     stage('Test (container smoke)') {
       steps {
-        sh '''
-          set -e
-          echo "== Run container for test on 8088 =="
+        sh """
+          set -euo pipefail
 
-          # стоп + удаление (гарантированно чистим окружение)
-          ${DOCKER_BIN} rm -f webtest >/dev/null 2>&1 || true
+          echo '== Run container smoke test =='
 
-          ${DOCKER_BIN} run -d --rm -p 8088:80 --name webtest ${DOCKER_IMAGE}:${SHORT_SHA}
+          NAME="webtest-${env.BUILD_TAG}"
+          IMAGE="${DOCKER_IMAGE}:${SHORT_SHA}"
 
-          for i in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8088 || true)
-            [ "$code" = "200" ] && break
+          ${DOCKER_BIN} ps -aq -f "label=ci=webtest" | xargs -r ${DOCKER_BIN} rm -f || true
+
+          ${DOCKER_BIN} run -d --rm \
+            --label ci=webtest \
+            --name "$NAME" \
+            -p 0:80 \
+            "$IMAGE"
+
+          # Узнаём, какой порт выдал Docker
+          PORT=$(${DOCKER_BIN} inspect -f '{{ (index (index .NetworkSettings.Ports "80/tcp") 0).HostPort }}' "$NAME")
+          echo "Container: $NAME  ->  http://localhost:${PORT}"
+
+          # Трап на уборку даже при ошибке
+          trap '${DOCKER_BIN} rm -f \"$NAME\" >/dev/null 2>&1 || true' EXIT
+
+          # Ждём 20 сек максимум HTTP 200
+          for i in \$(seq 1 20); do
+            code=\$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:\${PORT}" || true)
+            [ "\$code" = "200" ] && break
             sleep 1
           done
 
-          # убираем контейнер всегда
-          ${DOCKER_BIN} rm -f webtest >/dev/null 2>&1 || true
-
-          [ "$code" = "200" ] || { echo "❌ Test failed: HTTP $code"; exit 1; }
-          echo "✅ Test passed (HTTP 200)"
-        '''
+          [ "\$code" = "200" ] || { echo "❌ Test failed: HTTP \$code (port \${PORT})"; exit 1; }
+          echo "✅ Test passed (HTTP 200) on port \${PORT}"
+        """
       }
     }
 
