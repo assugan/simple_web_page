@@ -106,34 +106,37 @@ pipeline {
           set -euo pipefail
           echo "== Run container smoke test =="
 
-          # гарантируем путь к docker из ENV или дефолт
           DOCKER_BIN="${DOCKER_BIN:-/usr/local/bin/docker}"
 
           NAME="webtest-${BUILD_TAG}"
           IMAGE="${DOCKER_IMAGE}:${SHORT_SHA}"
 
-          # уберём только наши тестовые контейнеры
-          $DOCKER_BIN ps -aq -f "label=ci=webtest" | xargs -r $DOCKER_BIN rm -f || true
+          # Удалим только наш контейнер, если вдруг остался
+          $DOCKER_BIN rm -f "$NAME" >/dev/null 2>&1 || true
 
-          $DOCKER_BIN run -d --rm \
-            --label ci=webtest \
+          # Запускаем с рандомным хост-портом
+          CID=$($DOCKER_BIN run -d --rm \
             --name "$NAME" \
             -p 0:80 \
-            "$IMAGE"
+            "$IMAGE")
+          echo "$CID"
 
-          # дождёмся, когда docker выдаст порт и считаем его надёжно
+          # Узнаём выданный порт (берём первый ряд, там IPv4)
           PORT=""
           for i in $(seq 1 10); do
             LINE=$($DOCKER_BIN port "$NAME" 80/tcp || true)
-            PORT=$(printf "%s" "$LINE" | awk -F: "NF{print \$NF}")
+            PORT=$(printf "%s" "$LINE" | head -n1 | cut -d: -f2)
             [ -n "$PORT" ] && break
             sleep 1
           done
           [ -n "$PORT" ] || { echo "❌ Can't determine mapped port for $NAME"; $DOCKER_BIN rm -f "$NAME" || true; exit 1; }
 
           echo "Container: $NAME -> http://localhost:$PORT"
+
+          # Уборка даже при ошибке
           trap '$DOCKER_BIN rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 
+          # Ждём до 20 сек HTTP 200
           code=""
           for i in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PORT" || true)
