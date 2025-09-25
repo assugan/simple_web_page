@@ -255,7 +255,7 @@ pipeline {
                 --extra-vars "app_domain=''' + "${APP_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest" -vv
                 grafana_admin_password=''' + '${GRAFANA_ADMIN_PASSWORD}' + ''' \
                 telegram_bot_token=${TELEGRAM_BOT_TOKEN} \
-                elegram_chat_id=${TELEGRAM_CHAT_ID} -vv
+                telegram_chat_id=${TELEGRAM_CHAT_ID}" -vv
 
               echo "== MARK:DEPLOY:DONE =="
             '''
