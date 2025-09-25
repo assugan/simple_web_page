@@ -102,45 +102,54 @@ pipeline {
 
     stage('Test (container smoke)') {
       steps {
-        script {
-          def NAME  = "webtest-${env.BUILD_TAG}"
-          def IMAGE = "${DOCKER_IMAGE}:${SHORT_SHA}"
+        sh """
+          set -euo pipefail
+          echo '== Run container smoke test =='
 
-          withEnv(["WT_NAME=${NAME}", "WT_IMAGE=${IMAGE}", "DOCKER_BIN=${DOCKER_BIN}"]) {
-            sh '''#!/usr/bin/env bash
-              set -euo pipefail
-              echo '== Run container smoke test =='
+          NAME="webtest-${env.BUILD_TAG}"
+          IMAGE="${DOCKER_IMAGE}:${SHORT_SHA}"
 
-              # Чистим хвосты предыдущих прогонов (по лейблу)
-              $DOCKER_BIN ps -aq -f "label=ci=webtest" | xargs -r $DOCKER_BIN rm -f || true
+          # На всякий случай подчистим только наши прошлые webtest-контейнеры
+          ${DOCKER_BIN} ps -aq -f "label=ci=webtest" | xargs -r ${DOCKER_BIN} rm -f || true
 
-              # Стартуем на случайный свободный порт
-              $DOCKER_BIN run -d --rm \
-                --label ci=webtest \
-                --name "$WT_NAME" \
-                -p 0:80 \
-                "$WT_IMAGE"
+          ${DOCKER_BIN} run -d --rm \
+            --label ci=webtest \
+            --name "$NAME" \
+            -p 0:80 \
+            "$IMAGE"
 
-              # Узнаём, какой порт выдал Docker
-              PORT=$($DOCKER_BIN inspect -f '{{ (index (index .NetworkSettings.Ports "80/tcp") 0).HostPort }}' "$WT_NAME")
-              echo "Container: $WT_NAME  ->  http://localhost:${PORT}"
+          # Узнаём выделенный порт надёжным способом
+          PORT=""
+          for i in \$(seq 1 10); do
+            # docker port возвращает вроде "0.0.0.0:32787" или "::1:32787"
+            LINE=\$(${DOCKER_BIN} port "$NAME" 80/tcp || true)
+            PORT=\$(printf '%s' "\$LINE" | awk -F: 'NF{print \$NF}')
+            [ -n "\$PORT" ] && break
+            sleep 1
+          done
 
-              # Уборка контейнера даже при ошибке
-              cleanup() { $DOCKER_BIN rm -f "$WT_NAME" >/dev/null 2>&1 || true; }
-              trap cleanup EXIT
+          if [ -z "\$PORT" ]; then
+            echo "❌ Can't determine mapped port for \$NAME"
+            ${DOCKER_BIN} rm -f "$NAME" || true
+            exit 1
+          fi
 
-              # Ждём HTTP 200 (до 30 сек)
-              for i in $(seq 1 30); do
-                code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}" || true)
-                [ "$code" = "200" ] && break
-                sleep 1
-              done
+          echo "Container: \$NAME  ->  http://localhost:\$PORT"
 
-              [ "$code" = "200" ] || { echo "❌ Test failed: HTTP $code (port ${PORT})"; exit 1; }
-              echo "✅ Test passed (HTTP 200) on port ${PORT}"
-            '''
-          }
-        }
+          # Трап на уборку даже при ошибке
+          trap '${DOCKER_BIN} rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
+
+          # Ждём HTTP 200 до 20 сек
+          code=""
+          for i in \$(seq 1 20); do
+            code=\$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:\$PORT" || true)
+            [ "\$code" = "200" ] && break
+            sleep 1
+          done
+
+          [ "\$code" = "200" ] || { echo "❌ Test failed: HTTP \$code (port \$PORT)"; exit 1; }
+          echo "✅ Test passed (HTTP 200) on port \$PORT"
+        """
       }
     }
 
