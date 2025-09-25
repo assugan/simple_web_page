@@ -107,6 +107,7 @@ pipeline {
           echo "== Run container for test on 8088 =="
 
           # убиваем старый контейнер если он остался
+          ${DOCKER_BIN} stop webtest >/dev/null 2>&1 || true
           ${DOCKER_BIN} rm -f webtest >/dev/null 2>&1 || true
           
           "${DOCKER_BIN}" run -d --rm -p 8088:80 --name webtest ${DOCKER_IMAGE}:${SHORT_SHA}
