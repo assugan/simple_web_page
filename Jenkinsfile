@@ -196,7 +196,9 @@ pipeline {
           credentialsId: 'ec2-ssh-key',        // Jenkins Credentials: SSH Username with private key (username=ubuntu)
           keyFileVariable: 'SSH_KEY_FILE',
           usernameVariable: 'SSH_USER'
-        )]) {
+        ),
+        string(credentialsId: 'grafana-admin-password', variable: 'GRAFANA_ADMIN_PASSWORD')
+        ]) {
           dir('infra-src/ansible') {
             sh '''
               set -euxo pipefail
@@ -221,6 +223,7 @@ pipeline {
               ansible-playbook -i inventory.ini site.yml \
                 -u "$SSH_USER" --private-key "$SSH_KEY_FILE" \
                 --extra-vars "app_domain=''' + "${APP_DOMAIN}" + ''' image_repo=''' + "${DOCKER_IMAGE}" + ''' image_tag=latest" -vv
+                grafana_admin_password=${GRAFANA_ADMIN_PASSWORD}" -vv
 
               echo "== MARK:DEPLOY:DONE =="
             '''
