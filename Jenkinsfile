@@ -106,17 +106,20 @@ pipeline {
           set -e
           echo "== Run container for test on 8088 =="
 
-          # убиваем старый контейнер если он остался
-          ${DOCKER_BIN} stop webtest >/dev/null 2>&1 || true
+          # стоп + удаление (гарантированно чистим окружение)
           ${DOCKER_BIN} rm -f webtest >/dev/null 2>&1 || true
-          
-          "${DOCKER_BIN}" run -d --rm -p 8088:80 --name webtest ${DOCKER_IMAGE}:${SHORT_SHA}
+
+          ${DOCKER_BIN} run -d --rm -p 8088:80 --name webtest ${DOCKER_IMAGE}:${SHORT_SHA}
+
           for i in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8088 || true)
             [ "$code" = "200" ] && break
             sleep 1
           done
-          "${DOCKER_BIN}" stop webtest || true
+
+          # убираем контейнер всегда
+          ${DOCKER_BIN} rm -f webtest >/dev/null 2>&1 || true
+
           [ "$code" = "200" ] || { echo "❌ Test failed: HTTP $code"; exit 1; }
           echo "✅ Test passed (HTTP 200)"
         '''
