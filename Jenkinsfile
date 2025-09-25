@@ -102,39 +102,45 @@ pipeline {
 
     stage('Test (container smoke)') {
       steps {
-        sh """
-          set -euo pipefail
+        script {
+          def NAME  = "webtest-${env.BUILD_TAG}"
+          def IMAGE = "${DOCKER_IMAGE}:${SHORT_SHA}"
 
-          echo '== Run container smoke test =='
+          withEnv(["WT_NAME=${NAME}", "WT_IMAGE=${IMAGE}", "DOCKER_BIN=${DOCKER_BIN}"]) {
+            sh '''#!/usr/bin/env bash
+              set -euo pipefail
+              echo '== Run container smoke test =='
 
-          NAME="webtest-${env.BUILD_TAG}"
-          IMAGE="${DOCKER_IMAGE}:${SHORT_SHA}"
+              # Чистим хвосты предыдущих прогонов (по лейблу)
+              $DOCKER_BIN ps -aq -f "label=ci=webtest" | xargs -r $DOCKER_BIN rm -f || true
 
-          ${DOCKER_BIN} ps -aq -f "label=ci=webtest" | xargs -r ${DOCKER_BIN} rm -f || true
+              # Стартуем на случайный свободный порт
+              $DOCKER_BIN run -d --rm \
+                --label ci=webtest \
+                --name "$WT_NAME" \
+                -p 0:80 \
+                "$WT_IMAGE"
 
-          ${DOCKER_BIN} run -d --rm \
-            --label ci=webtest \
-            --name "$NAME" \
-            -p 0:80 \
-            "$IMAGE"
+              # Узнаём, какой порт выдал Docker
+              PORT=$($DOCKER_BIN inspect -f '{{ (index (index .NetworkSettings.Ports "80/tcp") 0).HostPort }}' "$WT_NAME")
+              echo "Container: $WT_NAME  ->  http://localhost:${PORT}"
 
-          # Узнаём, какой порт выдал Docker
-          PORT=$(docker inspect -f '{{ (index (index .NetworkSettings.Ports "80/tcp") 0).HostPort }}' "$WT_NAME")
-          echo "Container: $WT_NAME  ->  http://localhost:${PORT}"
+              # Уборка контейнера даже при ошибке
+              cleanup() { $DOCKER_BIN rm -f "$WT_NAME" >/dev/null 2>&1 || true; }
+              trap cleanup EXIT
 
-          # Трап на уборку даже при ошибке
-          trap '${DOCKER_BIN} rm -f \"$NAME\" >/dev/null 2>&1 || true' EXIT
+              # Ждём HTTP 200 (до 30 сек)
+              for i in $(seq 1 30); do
+                code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}" || true)
+                [ "$code" = "200" ] && break
+                sleep 1
+              done
 
-          # Ждём 20 сек максимум HTTP 200
-          for i in \$(seq 1 20); do
-            code=\$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:\${PORT}" || true)
-            [ "\$code" = "200" ] && break
-            sleep 1
-          done
-
-          [ "\$code" = "200" ] || { echo "❌ Test failed: HTTP \$code (port \${PORT})"; exit 1; }
-          echo "✅ Test passed (HTTP 200) on port \${PORT}"
-        """
+              [ "$code" = "200" ] || { echo "❌ Test failed: HTTP $code (port ${PORT})"; exit 1; }
+              echo "✅ Test passed (HTTP 200) on port ${PORT}"
+            '''
+          }
+        }
       }
     }
 
