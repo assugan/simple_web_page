@@ -178,23 +178,6 @@ pipeline {
       }
     }
 
-    // feature-ветки: обычный push тегов SHA и branch
-    stage('Push (non-main branches)') {
-      when { allOf { expression { env.BRANCH_NAME != 'main' }; not { changeRequest() } } }
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
-          sh '''
-            set -e
-            echo "$DH_PASS" | "${DOCKER_BIN}" login -u "$DH_USER" --password-stdin
-            SAFE_TAG=$(echo "${BRANCH_SAFE}" | sed 's/[^a-zA-Z0-9_.-]/-/g')
-            "${DOCKER_BIN}" push ${DOCKER_IMAGE}:${SHORT_SHA}
-            "${DOCKER_BIN}" push ${DOCKER_IMAGE}:${SAFE_TAG}
-            "${DOCKER_BIN}" logout || true
-          '''
-        }
-      }
-    }
-
     // деплой только для main
     stage('Deploy (Ansible, main only)') {
       when { allOf { expression { env.BRANCH_NAME == 'main' }; not { changeRequest() } } }
