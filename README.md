@@ -44,7 +44,7 @@ brew services list
 # Jenkins будет доступен по адресу:
 # http://localhost:8080
 ```
-### 2. Настройк Multibranch Pipeline
+### 2. Настройка Multibranch Pipeline
 1. Перейдите в браузере по адресу: http://localhost:8080
 2. Установите рекомендованные плагины (или необходимые вручную).
 3. Настройка Multibranch Pipeline:
